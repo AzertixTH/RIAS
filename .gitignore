@@ -1,0 +1,14 @@
+.env
+persona/
+__pycache__/
+*.py[cod]
+*.db
+*.log
+.venv/
+venv/
+tools/ui_ux_skill/
+dashboards/
+*.db
+*.log
+.claude/
+.gitignore
