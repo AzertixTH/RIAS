@@ -3,8 +3,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ASSISTANT_NAME     = os.getenv("ASSISTANT_NAME", "RIAS")
-ASSISTANT_SUBTITLE = os.getenv("ASSISTANT_SUBTITLE", "Refined Intelligent Agentic System")
+ASSISTANT_NAME     = os.getenv("ASSISTANT_NAME")
+ASSISTANT_SUBTITLE = os.getenv("ASSISTANT_SUBTITLE")
 USER_NAME          = os.getenv("USER_NAME", "User")
 
 SAGA_PATH   = os.getenv("SAGA_PATH",   os.path.expanduser("~/Obsidian/Saga/"))

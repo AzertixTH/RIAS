@@ -13,8 +13,8 @@ from config import MAIN_MODEL
 load_dotenv()
 
 _client = OpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENROUTER_API_KEY") or os.getenv("LLM_API_KEY", "ollama"),
+    base_url=os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1"),
 )
 
 def _sanitize(text: str) -> str:
