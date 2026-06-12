@@ -12,3 +12,4 @@ dashboards/
 *.log
 .claude/
 .gitignore
+CLAUDE.md
