@@ -12,7 +12,7 @@ pip install -r requirements.txt --quiet
 playwright install chromium --quiet
 
 # Launcher script aanmaken
-ASSISTANT_NAME=${ASSISTANT_NAME:-rias}
+ASSISTANT_NAME=${ASSISTANT_NAME:-assistant}
 INSTALL_DIR="$HOME/.local/bin"
 SCRIPT_PATH="$INSTALL_DIR/$ASSISTANT_NAME"
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"

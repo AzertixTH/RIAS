@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from config import SAGA_PATH
+from config import SAGA_PATH, ASSISTANT_NAME
 
 
 class Session:
@@ -8,11 +8,11 @@ class Session:
         self.start_time = datetime.now()
         self.exchanges = []
 
-    def add(self, user_message: str, rias_reply: str):
+    def add(self, user_message: str, assistant_reply: str):
         self.exchanges.append({
             "time": datetime.now().strftime("%H:%M"),
             "user": user_message,
-            "rias": rias_reply
+            "assistant": assistant_reply
         })
 
     def save(self):
@@ -25,7 +25,7 @@ class Session:
         lines = [f"# Session {timestamp}\n"]
         for ex in self.exchanges:
             lines.append(f"**[{ex['time']}] You:** {ex['user']}")
-            lines.append(f"**RIAS:** {ex['rias']}\n")
+            lines.append(f"**{ASSISTANT_NAME}:** {ex['assistant']}\n")
         lines.append("\nLinks: [[📅 Sessions]]")
         with open(path, "w") as f:
             f.write("\n".join(lines))

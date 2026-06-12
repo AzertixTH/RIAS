@@ -2,8 +2,9 @@ import os
 import subprocess
 import time
 from tools.project import get_project
+from config import ASSISTANT_NAME
 
-_SESSION = "rias-claude"
+_SESSION = f"{ASSISTANT_NAME.lower()}-claude"
 
 
 def _ensure_session() -> None:
@@ -30,7 +31,7 @@ def open_claude() -> str:
     for cmd in terminals:
         try:
             subprocess.Popen(cmd)
-            return "Claude geopend in nieuw venster. Sessie: rias-claude."
+            return f"Claude geopend in nieuw venster. Sessie: {_SESSION}."
         except FileNotFoundError:
             continue
 

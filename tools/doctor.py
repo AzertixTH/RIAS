@@ -3,7 +3,7 @@ import urllib.request
 import urllib.error
 import sqlite3
 
-from config import SAGA_PATH, AETHER_PATH, MAIN_MODEL, CODE_MODEL, CURATOR_MODEL
+from config import SAGA_PATH, AETHER_PATH, MAIN_MODEL, CODE_MODEL, CURATOR_MODEL, ASSISTANT_NAME
 
 
 def _ok(msg):  return f"  ✓  {msg}"
@@ -65,7 +65,7 @@ def _check_aether() -> list[str]:
 
 def _check_browser() -> list[str]:
     lines = ["BROWSER"]
-    profile = os.path.expanduser("~/.rias/chromium-profile")
+    profile = os.path.expanduser(f"~/.{ASSISTANT_NAME.lower()}/chromium-profile")
     if os.path.isdir(profile):
         lines.append(_ok(f"Chromium profiel aanwezig"))
     else:

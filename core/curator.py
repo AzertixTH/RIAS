@@ -40,10 +40,10 @@ Current memory:
 
 Exchange:
 User: {{user_message}}
-{ASSISTANT_NAME}: {{rias_reply}}"""
+{ASSISTANT_NAME}: {{assistant_reply}}"""
 
 
-def _curate(user_message: str, rias_reply: str):
+def _curate(user_message: str, assistant_reply: str):
     parts = []
     for filename in ("USER.md", "MEMORY.md"):
         path = os.path.join(SAGA_PATH, filename)
@@ -59,7 +59,7 @@ def _curate(user_message: str, rias_reply: str):
             max_tokens=256,
             messages=[{"role": "user", "content": CURATOR_PROMPT.format(
                 user_message=user_message,
-                rias_reply=rias_reply,
+                assistant_reply=assistant_reply,
                 current_memory=current_memory
             )}]
         )
@@ -125,10 +125,10 @@ def _curate(user_message: str, rias_reply: str):
             f.write(f"\n\n{section_header}\n{new_text}")
 
 
-def curate_async(user_message: str, rias_reply: str):
+def curate_async(user_message: str, assistant_reply: str):
     thread = threading.Thread(
         target=_curate,
-        args=(user_message, rias_reply),
+        args=(user_message, assistant_reply),
         daemon=True
     )
     thread.start()

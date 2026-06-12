@@ -3,8 +3,9 @@ import tempfile
 import queue
 import threading
 from playwright.sync_api import sync_playwright
+from config import ASSISTANT_NAME
 
-_PROFILE_DIR = os.path.expanduser("~/.rias/chromium-profile")
+_PROFILE_DIR = os.path.expanduser(f"~/.{ASSISTANT_NAME.lower()}/chromium-profile")
 
 _task_queue: queue.Queue = queue.Queue()
 _browser_thread: threading.Thread | None = None
