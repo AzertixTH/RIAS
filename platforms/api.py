@@ -9,6 +9,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from core.llm import Conversation
 from core import background
+from core import usage
+from core import conversations
 
 load_dotenv()
 
@@ -27,6 +29,19 @@ _sessions: dict[str, Conversation] = {}
 class MessageRequest(BaseModel):
     message: str
     images: list[str] = []  # base64 data URLs van de webapp
+
+
+def _get_conversation(session_id: str) -> Conversation | None:
+    conv = _sessions.get(session_id)
+    if conv:
+        return conv
+    history = conversations.load_history(session_id)
+    if history is None:
+        return None
+    conv = Conversation()
+    conv.history = [conv.history[0]] + history[1:]
+    _sessions[session_id] = conv
+    return conv
 
 
 def _history_text(conv: Conversation) -> list:
@@ -61,6 +76,15 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/usage")
+def get_usage():
+    return {
+        "daily": usage.daily_totals(30),
+        "totals": usage.period_totals(),
+        "openrouter": usage.fetch_openrouter_usage(),
+    }
+
+
 @app.post("/conversation")
 def new_conversation():
     session_id = str(uuid.uuid4())
@@ -70,7 +94,7 @@ def new_conversation():
 
 @app.post("/conversation/{session_id}/message")
 def send_message(session_id: str, body: MessageRequest):
-    conv = _sessions.get(session_id)
+    conv = _get_conversation(session_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -81,6 +105,8 @@ def send_message(session_id: str, body: MessageRequest):
                     yield f"data: {json.dumps({'type': 'reply', 'text': data})}\n\n"
                 elif kind == "tool":
                     yield f"data: {json.dumps({'type': 'tool', 'name': data})}\n\n"
+            conversations.save_history(session_id, conv.history)
+            yield f"data: {json.dumps({'type': 'usage', 'total_tokens': conv.total_tokens})}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
@@ -91,7 +117,7 @@ def send_message(session_id: str, body: MessageRequest):
 
 @app.get("/conversation/{session_id}/history")
 def get_history(session_id: str):
-    conv = _sessions.get(session_id)
+    conv = _get_conversation(session_id)
     if not conv:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"history": _history_text(conv)}
@@ -99,9 +125,9 @@ def get_history(session_id: str):
 
 @app.get("/conversation/{session_id}/agents")
 def get_agent_results(session_id: str):
-    if session_id not in _sessions:
+    conv = _get_conversation(session_id)
+    if not conv:
         raise HTTPException(status_code=404, detail="Session not found")
-    conv = _sessions[session_id]
     results = background.drain_results()
     injected = []
     for task in results:
