@@ -25,5 +25,8 @@ CODE_REVIEWER_MODEL = os.getenv("CODE_REVIEWER_MODEL") or CODE_MODEL
 RESEARCH_MODEL      = os.getenv("RESEARCH_MODEL")
 TRADING_MODEL       = os.getenv("TRADING_MODEL")
 
+HA_URL   = os.getenv("HA_URL", "")
+HA_TOKEN = os.getenv("HA_TOKEN", "")
+
 CONTEXT_SIZE = int(os.getenv("CONTEXT_SIZE", "256000"))
 

@@ -13,16 +13,16 @@ _browser_thread: threading.Thread | None = None
 def _browser_worker():
     os.makedirs(_PROFILE_DIR, exist_ok=True)
     pw = sync_playwright().start()
-    # persistent context: bewaart cookies, sessies en ingelogde accounts
     context = pw.chromium.launch_persistent_context(
         _PROFILE_DIR,
         headless=False,
         args=[
             "--disable-blink-features=AutomationControlled",
-            "--start-maximized",
+            "--window-position=0,0",
         ],
         no_viewport=True,
     )
+
     def _active_page():
         pages = [p for p in context.pages if not p.is_closed()]
         if not pages:
@@ -131,3 +131,70 @@ def browser_close() -> str:
         _browser_thread.join(timeout=5)
         _browser_thread = None
     return "Browser gesloten."
+
+
+def browser_scroll(direction: str = "down", amount: int = 400) -> str:
+    def fn(page):
+        delta = amount if direction == "down" else -amount
+        page.mouse.wheel(0, delta)
+        return f"Gescrolld {direction} ({amount}px)"
+    return _run_in_browser(fn)
+
+
+def browser_back() -> str:
+    def fn(page):
+        page.go_back(wait_until="domcontentloaded", timeout=10000)
+        return f"Terug: {page.title()} — {page.url}"
+    return _run_in_browser(fn)
+
+
+def browser_console(js: str) -> str:
+    def fn(page):
+        result = page.evaluate(js)
+        return str(result) if result is not None else "null"
+    return _run_in_browser(fn)
+
+
+def browser_get_images() -> str:
+    def fn(page):
+        images = page.eval_on_selector_all(
+            "img",
+            "els => els.map(el => (el.src || '') + ' | ' + (el.alt || '(geen alt)'))"
+        )
+        if not images:
+            return "Geen images gevonden."
+        return "\n".join(f"[{i+1}] {img}" for i, img in enumerate(images[:50]))
+    return _run_in_browser(fn)
+
+
+def browser_vision(prompt: str = "Wat zie je op deze pagina?") -> str:
+    path = browser_screenshot()
+    if not path or path == "timeout":
+        return "Kon geen screenshot nemen."
+
+    import base64
+    from openai import OpenAI
+    from config import LLM_API_KEY, LLM_BASE_URL, MAIN_MODEL
+
+    try:
+        with open(path, "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+    except Exception as e:
+        return f"Kon screenshot niet lezen: {e}"
+
+    try:
+        client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
+        response = client.chat.completions.create(
+            model=MAIN_MODEL,
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}"}}
+                ]
+            }]
+        )
+        return response.choices[0].message.content or ""
+    except Exception as e:
+        return f"Vision analyse mislukt: {e}"

@@ -2,6 +2,8 @@ import os
 import subprocess
 
 from agents.base import BaseAgent
+from tools.executor import execute_code as _execute_code
+from tools.process_manager import process as _process
 from config import CODE_MODEL
 
 _READ_ROOTS = (
@@ -82,6 +84,57 @@ CODING_TOOLS = [
                 "required": ["path"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_files",
+            "description": "Search file contents with grep or find files by name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "path": {"type": "string"},
+                    "mode": {"type": "string", "enum": ["content", "name"]}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "execute_code",
+            "description": "Execute a Python script and return the output. Useful for running tests, data processing, or verifying logic.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "timeout": {"type": "integer"}
+                },
+                "required": ["code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "process",
+            "description": "Manage background processes. Use for long-running builds, dev servers, or test runners.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["start", "poll", "log", "wait", "kill", "write", "list"]},
+                    "pid": {"type": "string"},
+                    "command": {"type": "string"},
+                    "name": {"type": "string"},
+                    "lines": {"type": "integer"},
+                    "timeout": {"type": "integer"},
+                    "text": {"type": "string"}
+                },
+                "required": ["action"]
+            }
+        }
     }
 ]
 
@@ -134,5 +187,23 @@ class CodingAgent(BaseAgent):
                 return "\n".join(sorted(os.listdir(args["path"])))
             except Exception as e:
                 return f"Error: {e}"
+
+        if name == "search_files":
+            from tools.filesystem import search_files
+            return search_files(args["query"], args.get("path"), args.get("mode", "content"))
+
+        if name == "execute_code":
+            return _execute_code(args["code"], args.get("timeout", 30))
+
+        if name == "process":
+            return _process(
+                action=args["action"],
+                pid=args.get("pid"),
+                command=args.get("command"),
+                name=args.get("name"),
+                lines=args.get("lines", 50),
+                timeout=args.get("timeout", 30),
+                text=args.get("text"),
+            )
 
         return f"Unknown tool: {name}"

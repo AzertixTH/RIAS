@@ -27,6 +27,38 @@ def _encode(path: str) -> tuple[str, str] | None:
     return mime, data
 
 
+def vision_analyze(source: str, prompt: str = "Beschrijf wat je ziet.") -> str:
+    import os
+    from openai import OpenAI
+    from config import LLM_API_KEY, LLM_BASE_URL, MAIN_MODEL
+
+    if source.startswith("http://") or source.startswith("https://"):
+        image_block = {"type": "image_url", "image_url": {"url": source}}
+    else:
+        encoded = _encode(source)
+        if not encoded:
+            return f"Kon afbeelding niet lezen: {source}"
+        mime, data = encoded
+        image_block = {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}
+
+    try:
+        client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
+        response = client.chat.completions.create(
+            model=MAIN_MODEL,
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    image_block,
+                ]
+            }]
+        )
+        return response.choices[0].message.content or ""
+    except Exception as e:
+        return f"Vision analyse mislukt: {e}"
+
+
 def build_content(text: str) -> str | list:
     paths = [g for m in _PATH_PATTERN.finditer(text) for g in (m.group(1) or m.group(3),) if g]
     images = []

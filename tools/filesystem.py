@@ -1,4 +1,5 @@
 import os
+import subprocess
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -131,3 +132,43 @@ def patch_file(path: str, old_string: str, new_string: str) -> str:
         return f"Patch toegepast: {abs_path}"
     except Exception as e:
         return f"Fout bij schrijven: {e}"
+
+
+_SEARCH_EXTENSIONS = (
+    "*.py", "*.md", "*.txt", "*.json", "*.ts", "*.tsx",
+    "*.js", "*.jsx", "*.html", "*.css", "*.yaml", "*.toml",
+)
+
+
+def search_files(query: str, path: str = None, mode: str = "content") -> str:
+    base = os.path.realpath(os.path.expanduser(path or "~/Dev"))
+    if not any(base.startswith(os.path.expanduser(r)) for r in ("~/Dev", "~/Obsidian")):
+        return "Geblokkeerd: valt buiten ~/Dev en ~/Obsidian"
+
+    try:
+        if mode == "name":
+            result = subprocess.run(
+                ["find", base, "-name", f"*{query}*",
+                 "-not", "-path", "*/__pycache__/*",
+                 "-not", "-path", "*/.git/*"],
+                capture_output=True, text=True, timeout=15,
+            )
+        else:
+            include_args = []
+            for ext in _SEARCH_EXTENSIONS:
+                include_args += ["--include", ext]
+            result = subprocess.run(
+                ["grep", "-r", "-l", "-I", query, base] + include_args,
+                capture_output=True, text=True, timeout=15,
+            )
+
+        lines = [l for l in result.stdout.strip().split("\n") if l]
+        if not lines:
+            return "Geen resultaten gevonden."
+        if len(lines) > 50:
+            lines = lines[:50] + [f"... ({len(lines) - 50} meer resultaten)"]
+        return "\n".join(lines)
+    except subprocess.TimeoutExpired:
+        return "Timeout bij zoeken."
+    except Exception as e:
+        return f"Fout: {e}"
