@@ -11,7 +11,6 @@ from rich.console import Group
 
 from config import ASSISTANT_NAME, ASSISTANT_SUBTITLE, MAIN_MODEL, USER_NAME
 from core.llm import Conversation
-from core.session import Session
 from core import background
 from core.voice import listen_and_transcribe, speak
 
@@ -221,7 +220,6 @@ class RIASApp(App):
     def __init__(self):
         super().__init__()
         self.conversation = Conversation()
-        self.session = Session()
         self._sidebar_visible = True
         self._tts_enabled = False
 
@@ -279,7 +277,6 @@ class RIASApp(App):
             return
 
         if user_input.lower() in ("exit", "quit"):
-            self.session.save()
             self.exit()
             return
 
@@ -316,7 +313,6 @@ class RIASApp(App):
                     speak(reply)
                 except Exception as e:
                     self.call_from_thread(self._write_error, f"TTS: {e}")
-            self.call_from_thread(self.session.add, user_input, reply)
         except Exception as e:
             self.call_from_thread(self._write_error, str(e))
         finally:
@@ -417,6 +413,3 @@ class RIASApp(App):
                 inp.load_text(text)
                 inp.focus()
             self.call_from_thread(_fill)
-
-    def on_unmount(self) -> None:
-        self.session.save()

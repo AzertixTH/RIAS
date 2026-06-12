@@ -1,4 +1,5 @@
 import time
+import threading
 from textual.app import App, ComposeResult
 from textual.widgets import Static, TextArea, Markdown
 from textual.containers import VerticalScroll, Vertical, Horizontal
@@ -6,13 +7,12 @@ from textual.binding import Binding
 from textual import events, work
 from rich.text import Text
 
-from config import ASSISTANT_NAME, MAIN_MODEL, USER_NAME
+from config import ASSISTANT_NAME, MAIN_MODEL, USER_NAME, LLM_BASE_URL
 from core.llm import Conversation
-from core.session import Session
 from core import background
 from core.voice import listen_and_transcribe, speak
 
-PRIMARY   = "#C41E3A"
+PRIMARY   = "#22C55E"
 MUTED     = "#666666"
 FG        = "#d4d4d4"
 GREEN     = "#3DB84A"
@@ -34,6 +34,8 @@ TOOL_LABELS = {
     "run_shell":                "running shell",
     "read_aether":              "reading aether",
     "list_aether":              "listing aether",
+    "write_aether":             "writing to aether",
+    "patch_aether":             "patching aether note",
     "read_file":                "reading file",
     "list_dir":                 "listing directory",
     "write_file":               "writing file",
@@ -41,7 +43,10 @@ TOOL_LABELS = {
     "list_skills":              "listing skills",
     "load_skill":               "loading skill",
     "write_skill":              "writing skill",
-    "delegate_code":            "delegating → Kage",
+    "delegate_code":            "opening Claude",
+    "send_to_claude":           "sending to Claude",
+    "stop_claude":              "stopping Claude",
+    "claude_status":            "checking Claude",
     "delegate_research":        "delegating → Echo",
     "queue_research":           "queuing → Echo",
     "get_queued_results":       "retrieving queued research",
@@ -53,13 +58,25 @@ TOOL_LABELS = {
     "map_show":                 "showing map",
     "map_route":                "calculating route",
     "map_clear":                "clearing map",
-    "browser_open":             "browser_open",
-    "browser_click":            "browser_click",
-    "browser_type":             "browser_type",
-    "browser_press":            "browser_press",
-    "browser_screenshot":       "browser_screenshot",
-    "browser_read":             "browser_read",
-    "browser_close":            "browser_close",
+    "browser_open":             "opening browser",
+    "browser_click":            "clicking element",
+    "browser_type":             "typing in browser",
+    "browser_press":            "pressing key",
+    "browser_screenshot":       "taking screenshot",
+    "browser_read":             "reading page",
+    "browser_close":            "closing browser",
+    "browser_scroll":           "scrolling page",
+    "browser_back":             "going back",
+    "browser_console":          "running JS",
+    "browser_get_images":       "getting images",
+    "browser_vision":           "analyzing page visually",
+    "execute_code":             "executing code",
+    "process":                  "managing process",
+    "search_files":             "searching files",
+    "todo":                     "managing tasks",
+    "session_search":           "searching sessions",
+    "text_to_speech":           "speaking",
+    "vision_analyze":           "analyzing image",
 }
 
 
@@ -91,8 +108,15 @@ class Banner(Horizontal):
         info.append(f"{ASSISTANT_NAME} ", style=f"bold {PRIMARY}")
         info.append("v4.0  ·  ", style=MUTED)
         info.append(MODEL_DISPLAY, style=SECONDARY)
-        info.append("  ·  OpenRouter\n", style=MUTED)
-        info.append("5 agents  ·  14 tools  ·  Saga actief\n", style=MUTED)
+        _provider = "OpenRouter" if not LLM_BASE_URL or "openrouter" in LLM_BASE_URL else "Valhalla"
+        info.append(f"  ·  {_provider}\n", style=MUTED)
+        from tools.registry import TOOL_SCHEMAS
+        import os as _os
+        from config import SAGA_PATH
+        _tool_count = len(TOOL_SCHEMAS)
+        _skills_dir = _os.path.join(SAGA_PATH, "skills")
+        _skill_count = len([f for f in _os.listdir(_skills_dir) if f.endswith(".md")]) if _os.path.isdir(_skills_dir) else 0
+        info.append(f"5 agents  ·  {_tool_count} tools  ·  {_skill_count} skills  ·  Saga actief\n", style=MUTED)
         info.append("Type ", style=MUTED)
         info.append("/help", style=SECONDARY)
         info.append(" for more information", style=MUTED)
@@ -118,7 +142,7 @@ class UserMessage(Vertical):
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="row"):
-            yield Static(f"> {self._text}", classes="content")
+            yield Static(Text(f"> {self._text}"), classes="content")
         yield Static("─" * 300, classes="sep")
 
 
@@ -150,6 +174,27 @@ class ReasoningMessage(Static):
 
     def __init__(self, label: str = "Thought"):
         super().__init__(f"✓ {label} ▶")
+
+
+class StreamingMessage(Static):
+    DEFAULT_CSS = f"""
+    StreamingMessage {{
+        height: auto;
+        width: 100%;
+        background: transparent;
+        padding: 0 0 0 2;
+        margin: 0 0 2 0;
+        color: {FG};
+    }}
+    """
+
+    def __init__(self):
+        super().__init__("")
+        self._buf = ""
+
+    def append(self, chunk: str) -> None:
+        self._buf += chunk
+        self.update(self._buf)
 
 
 class AssistantMessage(Markdown):
@@ -384,12 +429,12 @@ class RIASApp(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+r", "reset", "Reset"),
         Binding("f2", "voice", "Voice"),
+        Binding("escape", "interrupt", "Interrupt", show=False),
     ]
 
     def __init__(self):
         super().__init__()
         self.conversation = Conversation()
-        self.session = Session()
         self._tts_enabled = False
 
     def compose(self) -> ComposeResult:
@@ -409,17 +454,19 @@ class RIASApp(App):
     _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
     def _update_tokens(self) -> None:
+        from config import CONTEXT_SIZE
         tokens = self.conversation.total_tokens
         tk = f"{tokens / 1000:.1f}K" if tokens >= 1000 else str(tokens)
+        mx = f"{CONTEXT_SIZE // 1000}K"
         active = background.get_active()
         try:
             box = self.query_one("#input-box", InputBox)
             if active:
                 frame = self._SPINNER[int(time.time() * 8) % len(self._SPINNER)]
                 names = "  ·  ".join({a["name"] for a in active})
-                box.border_title = f" {tk} tokens  ·  {names} {frame}"
+                box.border_title = f" {tk}/{mx} tokens  ·  {names} {frame}"
             else:
-                box.border_title = f" {tk} tokens"
+                box.border_title = f" {tk}/{mx} tokens"
         except Exception:
             pass
 
@@ -433,14 +480,14 @@ class RIASApp(App):
 
     def _drain_agent_results(self) -> None:
         for task in background.drain_results():
-            chat = self.query_one("#chat", Chat)
-            self.run_worker(self._inject_result(task["name"], task["result"]))
+            self._inject_result(task["name"], task["result"])
 
-    async def _inject_result(self, name: str, result: str) -> None:
+    @work(thread=True)
+    def _inject_result(self, name: str, result: str) -> None:
         chat = self.query_one("#chat", Chat)
         thinking = ThinkingIndicator()
-        await chat.mount(thinking)
-        chat.scroll_end(animate=False)
+        self.call_from_thread(chat.mount, thinking)
+        self.call_from_thread(chat.scroll_end, animate=False)
 
         tools_used = []
         reply = ""
@@ -450,17 +497,20 @@ class RIASApp(App):
             elif kind == "reply":
                 reply = data
 
-        thinking.remove()
-        if tools_used:
-            chat.mount(ToolMessage("  ·  ".join(tools_used)))
-        if reply:
-            chat.mount(AssistantMessage(reply))
-            chat.scroll_end(animate=False)
-            if self._tts_enabled:
-                try:
-                    speak(reply)
-                except Exception:
-                    pass
+        def _finalize():
+            thinking.remove()
+            if tools_used:
+                chat.mount(ToolMessage("  ·  ".join(tools_used)))
+            if reply:
+                chat.mount(AssistantMessage(reply))
+                chat.scroll_end(animate=False)
+
+        self.call_from_thread(_finalize)
+        if self._tts_enabled and reply:
+            try:
+                speak(reply)
+            except Exception:
+                pass
 
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         self._handle_input(event.submitted_text)
@@ -490,8 +540,6 @@ class RIASApp(App):
     )
 
     def _needs_continuation(self, reply: str, tools_used: list) -> bool:
-        if tools_used:
-            return False
         lower = reply.lower()
         return any(phrase in lower for phrase in self._PENDING_PHRASES)
 
@@ -504,29 +552,52 @@ class RIASApp(App):
 
         tools_used = []
         reply = ""
+        streamed_content = ""
+        streaming_msg = StreamingMessage()
+        stream_started = False
 
-        for kind, data in self.conversation.chat_stream(user_input):
-            if kind == "tool" and not data.startswith("delegate_"):
+        for kind, data in self.conversation.chat_stream(user_input, stream_tokens=True):
+            if kind == "tool":
                 label = TOOL_LABELS.get(data, data)
                 if label not in tools_used:
                     tools_used.append(label)
+            elif kind == "token":
+                streamed_content += data
+                if not stream_started:
+                    stream_started = True
+                    def _start():
+                        thinking.remove()
+                        if tools_used:
+                            chat.mount(ToolMessage("  ·  ".join(tools_used)))
+                        chat.mount(streaming_msg)
+                        chat.scroll_end(animate=False)
+                    self.call_from_thread(_start)
+                def _append(chunk=data):
+                    streaming_msg.append(chunk)
+                    chat.scroll_end(animate=False)
+                self.call_from_thread(_append)
             elif kind == "reply":
                 reply = data
 
+        if not reply and streamed_content:
+            reply = streamed_content
+
         needs_cont = self._needs_continuation(reply, tools_used)
 
-        def _show():
-            thinking.remove()
-            if tools_used:
-                chat.mount(ToolMessage("  ·  ".join(tools_used)))
+        def _finalize():
+            if stream_started:
+                streaming_msg.remove()
+            else:
+                thinking.remove()
+                if tools_used:
+                    chat.mount(ToolMessage("  ·  ".join(tools_used)))
             if reply:
                 chat.mount(AssistantMessage(reply))
                 chat.scroll_end(animate=False)
             if needs_cont:
                 self.set_timer(0.5, self._do_continuation)
 
-        self.call_from_thread(_show)
-        self.call_from_thread(self.session.add, user_input, reply)
+        self.call_from_thread(_finalize)
 
         if self._tts_enabled and reply:
             try:
@@ -543,23 +614,43 @@ class RIASApp(App):
 
         tools_used = []
         reply = ""
-        for kind, data in self.conversation.chat_stream("ga door"):
-            if kind == "tool" and not data.startswith("delegate_"):
+        streaming_msg = StreamingMessage()
+        stream_started = False
+
+        for kind, data in self.conversation.chat_stream("ga door", stream_tokens=True):
+            if kind == "tool":
                 label = TOOL_LABELS.get(data, data)
                 if label not in tools_used:
                     tools_used.append(label)
+            elif kind == "token":
+                if not stream_started:
+                    stream_started = True
+                    def _start():
+                        thinking.remove()
+                        if tools_used:
+                            chat.mount(ToolMessage("  ·  ".join(tools_used)))
+                        chat.mount(streaming_msg)
+                        chat.scroll_end(animate=False)
+                    self.call_from_thread(_start)
+                def _append(chunk=data):
+                    streaming_msg.append(chunk)
+                    chat.scroll_end(animate=False)
+                self.call_from_thread(_append)
             elif kind == "reply":
                 reply = data
 
-        def _show():
-            thinking.remove()
-            if tools_used:
-                chat.mount(ToolMessage("  ·  ".join(tools_used)))
+        def _finalize():
+            if stream_started:
+                streaming_msg.remove()
+            else:
+                thinking.remove()
+                if tools_used:
+                    chat.mount(ToolMessage("  ·  ".join(tools_used)))
             if reply:
                 chat.mount(AssistantMessage(reply))
                 chat.scroll_end(animate=False)
 
-        self.call_from_thread(_show)
+        self.call_from_thread(_finalize)
 
     def _run_command(self, cmd_str: str, chat: Chat) -> None:
         parts = cmd_str.split(None, 1)
@@ -676,28 +767,22 @@ class RIASApp(App):
 
         def write():
             try:
-                from openai import OpenAI
-                from dotenv import load_dotenv
-                from config import MAIN_MODEL
-                load_dotenv()
-                client = OpenAI(
-                    api_key=os.getenv("OPENROUTER_API_KEY"),
-                    base_url="https://openrouter.ai/api/v1",
-                )
+                from core.llm import _IS_OLLAMA, _ollama_chat, _openai_chat
                 history_text = "\n".join(
                     f"{m['role'].upper()}: {m['content'][:300]}"
                     for m in msgs[-30:]
                     if isinstance(m.get("content"), str)
                 )
-                resp = client.chat.completions.create(
-                    model=MAIN_MODEL,
-                    max_tokens=600,
-                    messages=[{
-                        "role": "user",
-                        "content": f"Maak een beknopte samenvatting van dit gesprek. Noteer beslissingen, acties en belangrijke feiten. Schrijf in het Nederlands.\n\n{history_text}"
-                    }]
-                )
-                summary = resp.choices[0].message.content or ""
+                recap_msgs = [{
+                    "role": "user",
+                    "content": f"Maak een beknopte samenvatting van dit gesprek. Noteer beslissingen, acties en belangrijke feiten. Schrijf in het Nederlands.\n\n{history_text}"
+                }]
+                if _IS_OLLAMA:
+                    data = _ollama_chat(recap_msgs)
+                    summary = data.get("message", {}).get("content", "") or ""
+                else:
+                    resp = _openai_chat(recap_msgs, max_tokens=600)
+                    summary = resp.choices[0].message.content or ""
                 date = datetime.now().strftime("%Y-%m-%d_%H-%M")
                 path = os.path.join(SAGA_PATH, "sessions", f"recap_{date}.md")
                 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -715,6 +800,10 @@ class RIASApp(App):
         chat.mount(SystemMessage("RIAS herstart..."))
         chat.scroll_end(animate=False)
         self.set_timer(0.5, lambda: os.execv(sys.executable, [sys.executable] + sys.argv))
+
+    def action_interrupt(self) -> None:
+        from core.llm import cancel_stream
+        cancel_stream()
 
     def action_reset(self) -> None:
         self.conversation = Conversation()
@@ -736,6 +825,3 @@ class RIASApp(App):
                 ta.load_text(text)
                 ta.focus()
             self.call_from_thread(_fill)
-
-    def on_unmount(self) -> None:
-        self.session.save()

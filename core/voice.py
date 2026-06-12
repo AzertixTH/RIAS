@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from config import STT_MODEL, VOICE_ID
+from config import LLM_BASE_URL, STT_MODEL, VOICE_ID
 
 ELEVENLABS_API_KEY  = os.getenv("ELEVENLABS_API_KEY")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "7qdUFMklKPaaAVMsBTBt")
@@ -25,6 +25,8 @@ _mistral_client = OpenAI(
     api_key=os.getenv("MISTRAL_AI_API_KEY"),
     base_url="https://api.mistral.ai/v1",
 )
+
+sd.default.device = 'pipewire'
 
 SAMPLE_RATE = 16000
 SILENCE_THRESHOLD = 0.02
@@ -99,11 +101,13 @@ def _speak_elevenlabs(text: str, path: str) -> bool:
         return False
     try:
         from elevenlabs.client import ElevenLabs
+        from elevenlabs import VoiceSettings
         client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
         response = client.text_to_speech.convert(
             voice_id=ELEVENLABS_VOICE_ID,
             text=text,
             model_id="eleven_multilingual_v2",
+            voice_settings=VoiceSettings(stability=0.5, similarity_boost=0.75, speed=1.15),
         )
         with open(path, "wb") as f:
             for chunk in response:
@@ -132,7 +136,7 @@ def speak(text: str):
     tmp.close()
     try:
         if not _speak_elevenlabs(text, tmp.name):
-            return
+            asyncio.run(_tts_edge(text, tmp.name))
         _speak_proc = subprocess.Popen(
             ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", tmp.name],
             close_fds=True,

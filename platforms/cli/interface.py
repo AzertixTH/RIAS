@@ -12,9 +12,8 @@ from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.key_binding import KeyBindings
 from .theme import ASSISTANT_THEME
 from .components import MODEL_DISPLAY, _format_tokens
-from config import ASSISTANT_NAME, USER_NAME
+from config import ASSISTANT_NAME, USER_NAME, LLM_BASE_URL
 from core.llm import Conversation
-from core.session import Session
 from core import background
 from core.voice import listen_and_transcribe, speak
 
@@ -41,7 +40,8 @@ COMMANDS = {
 def print_header():
     console.print()
     name = Text(f"  {ASSISTANT_NAME}", style="bold #C41E3A")
-    rest = Text(f"  v4.0  ·  {MODEL_DISPLAY}  ·  OpenRouter", style="#555555")
+    _provider = "OpenRouter" if not LLM_BASE_URL or "openrouter" in LLM_BASE_URL else "Valhalla"
+    rest = Text(f"  v4.0  ·  {MODEL_DISPLAY}  ·  {_provider}", style="#555555")
     console.print(Text.assemble(name, rest))
     from tools.registry import TOOL_SCHEMAS
     tool_count = len(TOOL_SCHEMAS)
@@ -82,6 +82,41 @@ def handle_stream(gen) -> tuple[str, list[str]]:
         elif kind == "reply":
             reply = data
     return reply, tools_used
+
+
+def handle_stream_live(gen) -> tuple[str, list[str]]:
+    import sys
+    tools_used = []
+    reply_parts = []
+    header_printed = False
+
+    for kind, data in gen:
+        if kind == "tool" and not data.startswith("delegate_"):
+            tools_used.append(data)
+        elif kind == "token":
+            if not header_printed:
+                console.rule(Text("  ✦  ", style="#C41E3A"), align="right", style="#2a2a2a")
+                console.print()
+                if tools_used:
+                    console.print(Text("  ⟳ " + "  ·  ".join(tools_used), style="dim #555555 italic"))
+                    console.print()
+                sys.stdout.write("  ")
+                sys.stdout.flush()
+                header_printed = True
+            sys.stdout.write(f"\033[38;2;212;212;212m{data}\033[0m")
+            sys.stdout.flush()
+            reply_parts.append(data)
+        elif kind == "reply":
+            if not header_printed:
+                print_rias(data, tools_used)
+            else:
+                sys.stdout.write("\n\n")
+                sys.stdout.flush()
+                console.rule(Text("  session  ", style="#333333"), align="right", style="#1a1a1a")
+                console.print()
+            return data, tools_used
+
+    return "".join(reply_parts), tools_used
 
 
 def cmd_help():
@@ -164,7 +199,6 @@ def run():
     print_header()
 
     conversation_ref = [Conversation()]
-    session = Session()
     _tts_ref = [False]
 
     kb = KeyBindings()
@@ -211,7 +245,6 @@ def run():
                     print_rias(reply, tools)
             except Exception as e:
                 print_error(str(e))
-            session.add(f"[{task['name']}]", "")
 
         try:
             user_input = prompt(
@@ -275,9 +308,7 @@ def run():
         print_user(user_input)
 
         try:
-            reply, tools = handle_stream(conversation_ref[0].chat_stream(user_input))
-            if reply:
-                print_rias(reply, tools)
+            reply, tools = handle_stream_live(conversation_ref[0].chat_stream(user_input, stream_tokens=True))
                 if _tts_ref[0]:
                     try:
                         speak(reply)
@@ -286,7 +317,3 @@ def run():
         except Exception as e:
             print_error(str(e))
             reply = ""
-
-        session.add(user_input, reply)
-
-    session.save()
