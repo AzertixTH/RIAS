@@ -62,13 +62,21 @@ def _history_text(conv: Conversation) -> list:
     return result
 
 
-_WEBAPP_DIST = os.getenv("WEBAPP_DIST", os.path.expanduser("~/Dev/AIwebapp/dist"))
+_WEBAPP_DIST = os.getenv("WEBAPP_DIST", os.path.expanduser("~/Dev/RIAS-ui"))
 if os.path.isdir(_WEBAPP_DIST):
-    app.mount("/assets", StaticFiles(directory=f"{_WEBAPP_DIST}/assets"), name="assets")
+    app.mount("/css", StaticFiles(directory=f"{_WEBAPP_DIST}/css"), name="css")
+    app.mount("/js", StaticFiles(directory=f"{_WEBAPP_DIST}/js"), name="js")
 
     @app.get("/")
     def serve_webapp():
         return FileResponse(f"{_WEBAPP_DIST}/index.html")
+
+    @app.get("/{page}.html")
+    def serve_page(page: str):
+        path = f"{_WEBAPP_DIST}/{page}.html"
+        if os.path.isfile(path):
+            return FileResponse(path)
+        raise HTTPException(status_code=404)
 
 
 @app.get("/health")

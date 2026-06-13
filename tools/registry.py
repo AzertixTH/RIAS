@@ -42,14 +42,6 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
-            "name": "open_ui",
-            "description": "Open de RIAS visuele interface (sphere UI) in de browser.",
-            "parameters": {"type": "object", "properties": {}}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "agent_status",
             "description": "Check which background agents are currently active. Use this before claiming an agent is or isn't running.",
             "parameters": {"type": "object", "properties": {}}
@@ -566,11 +558,6 @@ def execute(name: str, args: dict) -> str:
         if action == "update":
             return update_project_file(args["content"])
 
-    if name == "open_ui":
-        path = os.path.expanduser("~/Dev/RIAS-UI/sphere.html")
-        subprocess.Popen(["firefox", f"file://{path}"])
-        return "RIAS UI geopend."
-
     if name == "agent_status":
         active = background.get_active()
         if not active:
@@ -712,7 +699,8 @@ def execute(name: str, args: dict) -> str:
         if action == "get_state":
             return ha_get_state(args["entity_id"])
         if action == "call_service":
-            return ha_call_service(args["domain"], args["service"], args.get("entity_id"), args.get("data"))
+            entity_id = args.get("entity_id") or args.get("target", {}).get("entity_id")
+            return ha_call_service(args["domain"], args["service"], entity_id, args.get("data"))
         if action == "list_entities":
             return ha_list_entities(args.get("domain_filter"))
 
