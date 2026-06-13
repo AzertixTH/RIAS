@@ -75,13 +75,26 @@ def _curate(user_message: str, assistant_reply: str):
 
     for line in result.split("\n"):
         if line.startswith("FILE:"):
+            if file_name is not None:
+                break  # tweede FILE: blok — model herhaalt zich, eerste blok is compleet
             file_name = line.replace("FILE:", "").strip()
         elif line.startswith("SECTION:"):
+            if section is not None:
+                break
             section = line.replace("SECTION:", "").strip()
         elif line.startswith("CONTENT:"):
+            if mode == "content":
+                break
             mode = "content"
-            content.append(line.replace("CONTENT:", "").strip())
+            first = line.replace("CONTENT:", "").strip()
+            if first:
+                content.append(first)
         elif mode == "content":
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if not stripped.startswith(("-", "*")):
+                break  # geen bullet meer — model is terug aan het redeneren
             content.append(line)
 
     if not file_name or not content:
