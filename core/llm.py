@@ -11,7 +11,7 @@ from tools.vision import build_content
 from core.curator import curate_async
 from core.usage import log_usage
 from core.session import Session
-from config import MAIN_MODEL, LLM_BASE_URL, LLM_API_KEY, CONTEXT_SIZE
+from config import MAIN_MODEL, LLM_BASE_URL, LLM_API_KEY, CONTEXT_SIZE, OLLAMA_NUM_CTX
 
 load_dotenv()
 
@@ -113,7 +113,7 @@ def _ollama_chat(messages: list, tools: list = None) -> dict:
         "messages": _to_ollama_messages(messages),
         "stream": False,
         "think": False,
-        "options": {"num_predict": 4096},
+        "options": {"num_predict": 4096, "num_ctx": OLLAMA_NUM_CTX},
     }
     if tools:
         payload["tools"] = tools
@@ -132,7 +132,7 @@ def _ollama_chat_stream(messages: list, tools: list = None):
         "messages": _to_ollama_messages(messages),
         "stream": True,
         "think": False,
-        "options": {"num_predict": 4096},
+        "options": {"num_predict": 4096, "num_ctx": OLLAMA_NUM_CTX},
     }
     if tools:
         payload["tools"] = tools
@@ -305,7 +305,8 @@ class Conversation:
             else:
                 i -= 1
 
-        budget = CONTEXT_SIZE - self._CONTEXT_MARGIN - _estimate_tokens(system)
+        max_context = OLLAMA_NUM_CTX if _IS_OLLAMA else CONTEXT_SIZE
+        budget = max_context - self._CONTEXT_MARGIN - _estimate_tokens(system)
         kept = []
         used = 0
         for pair in pairs:  # newest first

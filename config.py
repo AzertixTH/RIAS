@@ -29,4 +29,5 @@ HA_URL   = os.getenv("HA_URL", "")
 HA_TOKEN = os.getenv("HA_TOKEN", "")
 
 CONTEXT_SIZE = int(os.getenv("CONTEXT_SIZE", "256000"))
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "32768"))
 
